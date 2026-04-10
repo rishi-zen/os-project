@@ -1,0 +1,1779 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>SecureFS — Mini Secure File System</title>
+<link href="https://fonts.googleapis.com/css2?family=Share+Tech+Mono&family=Orbitron:wght@400;700;900&display=swap" rel="stylesheet">
+<style>
+  :root {
+    --bg: #050a0e;
+    --bg2: #0a1520;
+    --bg3: #0d1e2e;
+    --cyan: #00f5ff;
+    --cyan2: #00c4cc;
+    --cyan-dim: rgba(0,245,255,0.12);
+    --cyan-glow: 0 0 8px rgba(0,245,255,0.6), 0 0 20px rgba(0,245,255,0.2);
+    --red: #ff2d55;
+    --red-dim: rgba(255,45,85,0.15);
+    --green: #39ff14;
+    --green-dim: rgba(57,255,20,0.12);
+    --amber: #ffb700;
+    --amber-dim: rgba(255,183,0,0.12);
+    --purple: #bf5fff;
+    --text: #c8e6f0;
+    --text-dim: #4a7a8a;
+    --border: rgba(0,245,255,0.15);
+    --border-bright: rgba(0,245,255,0.5);
+    --font-main: 'Share Tech Mono', monospace;
+    --font-display: 'Orbitron', monospace;
+  }
+
+  * { box-sizing: border-box; margin: 0; padding: 0; }
+
+  body {
+    background: var(--bg);
+    color: var(--text);
+    font-family: var(--font-main);
+    font-size: 13px;
+    min-height: 100vh;
+    overflow: hidden;
+    cursor: crosshair;
+  }
+
+  /* SCANLINE OVERLAY */
+  body::before {
+    content: '';
+    position: fixed;
+    inset: 0;
+    background: repeating-linear-gradient(0deg, transparent, transparent 2px, rgba(0,0,0,0.08) 2px, rgba(0,0,0,0.08) 4px);
+    pointer-events: none;
+    z-index: 9999;
+  }
+
+  /* CORNER DECORATIONS */
+  .corner {
+    position: fixed;
+    width: 40px;
+    height: 40px;
+    z-index: 100;
+    pointer-events: none;
+  }
+  .corner.tl { top: 8px; left: 8px; border-top: 2px solid var(--cyan); border-left: 2px solid var(--cyan); }
+  .corner.tr { top: 8px; right: 8px; border-top: 2px solid var(--cyan); border-right: 2px solid var(--cyan); }
+  .corner.bl { bottom: 8px; left: 8px; border-bottom: 2px solid var(--cyan); border-left: 2px solid var(--cyan); }
+  .corner.br { bottom: 8px; right: 8px; border-bottom: 2px solid var(--cyan); border-right: 2px solid var(--cyan); }
+
+  /* SCROLLBAR */
+  ::-webkit-scrollbar { width: 4px; }
+  ::-webkit-scrollbar-track { background: var(--bg2); }
+  ::-webkit-scrollbar-thumb { background: var(--cyan2); border-radius: 2px; }
+
+  /* GLOW TEXT */
+  .glow { color: var(--cyan); text-shadow: var(--cyan-glow); }
+  .glow-red { color: var(--red); text-shadow: 0 0 8px rgba(255,45,85,0.7); }
+  .glow-green { color: var(--green); text-shadow: 0 0 8px rgba(57,255,20,0.6); }
+  .glow-amber { color: var(--amber); text-shadow: 0 0 8px rgba(255,183,0,0.5); }
+  .glow-purple { color: var(--purple); text-shadow: 0 0 8px rgba(191,95,255,0.6); }
+
+  /* PANELS */
+  .panel {
+    background: var(--bg2);
+    border: 1px solid var(--border);
+    position: relative;
+  }
+  .panel::before {
+    content: '';
+    position: absolute;
+    top: 0; left: 0; right: 0;
+    height: 1px;
+    background: linear-gradient(90deg, transparent, var(--cyan), transparent);
+    opacity: 0.5;
+  }
+
+  /* BUTTONS */
+  .btn {
+    font-family: var(--font-main);
+    font-size: 12px;
+    padding: 7px 16px;
+    background: transparent;
+    border: 1px solid var(--border-bright);
+    color: var(--cyan);
+    cursor: pointer;
+    text-transform: uppercase;
+    letter-spacing: 1px;
+    transition: all 0.15s;
+    position: relative;
+    overflow: hidden;
+  }
+  .btn::before {
+    content: '';
+    position: absolute;
+    inset: 0;
+    background: var(--cyan-dim);
+    transform: translateX(-100%);
+    transition: transform 0.2s;
+  }
+  .btn:hover::before { transform: translateX(0); }
+  .btn:hover { box-shadow: var(--cyan-glow); }
+  .btn:active { transform: scale(0.97); }
+  .btn.danger { border-color: var(--red); color: var(--red); }
+  .btn.danger::before { background: var(--red-dim); }
+  .btn.danger:hover { box-shadow: 0 0 8px rgba(255,45,85,0.5); }
+  .btn.success { border-color: var(--green); color: var(--green); }
+  .btn.success::before { background: var(--green-dim); }
+  .btn.amber { border-color: var(--amber); color: var(--amber); }
+  .btn.sm { padding: 4px 10px; font-size: 11px; }
+
+  /* INPUTS */
+  input, select, textarea {
+    font-family: var(--font-main);
+    font-size: 13px;
+    background: rgba(0,10,20,0.8);
+    border: 1px solid var(--border);
+    color: var(--text);
+    padding: 8px 12px;
+    outline: none;
+    transition: border-color 0.2s, box-shadow 0.2s;
+    width: 100%;
+  }
+  input:focus, select:focus, textarea:focus {
+    border-color: var(--cyan);
+    box-shadow: 0 0 0 2px rgba(0,245,255,0.1), inset 0 0 10px rgba(0,245,255,0.03);
+  }
+  select option { background: #0a1520; color: var(--text); }
+  input[type="checkbox"] { width: auto; accent-color: var(--cyan); }
+
+  /* TAGS */
+  .tag {
+    display: inline-block;
+    padding: 2px 8px;
+    font-size: 10px;
+    letter-spacing: 1px;
+    text-transform: uppercase;
+    border: 1px solid;
+  }
+  .tag.admin { color: var(--purple); border-color: var(--purple); background: rgba(191,95,255,0.1); }
+  .tag.user { color: var(--cyan); border-color: var(--cyan); background: var(--cyan-dim); }
+  .tag.read { color: var(--amber); border-color: var(--amber); background: var(--amber-dim); }
+  .tag.write { color: var(--green); border-color: var(--green); background: var(--green-dim); }
+  .tag.none { color: var(--red); border-color: var(--red); background: var(--red-dim); }
+  .tag.enc { color: var(--purple); border-color: var(--purple); background: rgba(191,95,255,0.1); }
+
+  /* ANIMATIONS */
+  @keyframes flicker {
+    0%,100% { opacity: 1; } 92% { opacity: 1; } 93% { opacity: 0.4; } 95% { opacity: 1; } 97% { opacity: 0.6; } 99% { opacity: 1; }
+  }
+  @keyframes slide-in {
+    from { opacity: 0; transform: translateY(-8px); }
+    to { opacity: 1; transform: translateY(0); }
+  }
+  @keyframes pulse-border {
+    0%,100% { border-color: var(--border); }
+    50% { border-color: var(--border-bright); }
+  }
+  @keyframes scan {
+    from { transform: translateY(-100%); }
+    to { transform: translateY(100vh); }
+  }
+  @keyframes blink { 0%,100% { opacity: 1; } 50% { opacity: 0; } }
+  @keyframes fadeIn { from { opacity: 0; } to { opacity: 1; } }
+  @keyframes progress { from { width: 0; } to { width: 100%; } }
+  @keyframes float-particle {
+    0% { transform: translateY(0) translateX(0); opacity: 0; }
+    10% { opacity: 1; }
+    90% { opacity: 1; }
+    100% { transform: translateY(-100px) translateX(30px); opacity: 0; }
+  }
+
+  .animate-in { animation: slide-in 0.25s ease; }
+
+  /* SCAN LINE EFFECT */
+  .scan-line {
+    position: fixed;
+    left: 0; right: 0;
+    height: 2px;
+    background: linear-gradient(90deg, transparent 0%, var(--cyan) 50%, transparent 100%);
+    opacity: 0.06;
+    animation: scan 6s linear infinite;
+    pointer-events: none;
+    z-index: 9998;
+  }
+
+  /* ========== LOGIN SCREEN ========== */
+  #login-screen {
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    height: 100vh;
+    position: fixed;
+    inset: 0;
+    z-index: 500;
+    background: var(--bg);
+  }
+
+  .login-box {
+    width: 420px;
+    animation: flicker 8s infinite;
+  }
+
+  .login-header {
+    text-align: center;
+    margin-bottom: 32px;
+  }
+
+  .login-logo {
+    font-family: var(--font-display);
+    font-size: 42px;
+    font-weight: 900;
+    color: var(--cyan);
+    text-shadow: 0 0 20px rgba(0,245,255,0.8), 0 0 60px rgba(0,245,255,0.3);
+    letter-spacing: 6px;
+    line-height: 1;
+  }
+
+  .login-subtitle {
+    font-size: 11px;
+    color: var(--text-dim);
+    letter-spacing: 4px;
+    text-transform: uppercase;
+    margin-top: 6px;
+  }
+
+  .login-form {
+    padding: 28px;
+    background: var(--bg2);
+    border: 1px solid var(--border);
+    position: relative;
+  }
+
+  .login-form::after {
+    content: '';
+    position: absolute;
+    bottom: 0; left: 0; right: 0;
+    height: 1px;
+    background: linear-gradient(90deg, transparent, var(--cyan), transparent);
+    opacity: 0.4;
+  }
+
+  .field-label {
+    font-size: 10px;
+    letter-spacing: 2px;
+    text-transform: uppercase;
+    color: var(--text-dim);
+    margin-bottom: 5px;
+    display: block;
+  }
+
+  .field-wrap { margin-bottom: 18px; }
+
+  .input-wrap { position: relative; }
+  .input-wrap .prefix {
+    position: absolute;
+    left: 12px; top: 50%;
+    transform: translateY(-50%);
+    color: var(--cyan);
+    pointer-events: none;
+  }
+  .input-wrap input { padding-left: 28px; }
+
+  .login-btn {
+    width: 100%;
+    padding: 12px;
+    font-family: var(--font-display);
+    font-size: 13px;
+    font-weight: 700;
+    letter-spacing: 3px;
+    text-transform: uppercase;
+    background: transparent;
+    border: 1px solid var(--cyan);
+    color: var(--cyan);
+    cursor: pointer;
+    position: relative;
+    overflow: hidden;
+    transition: all 0.2s;
+  }
+  .login-btn::before {
+    content: '';
+    position: absolute;
+    inset: 0;
+    background: var(--cyan);
+    transform: scaleX(0);
+    transform-origin: left;
+    transition: transform 0.3s ease;
+  }
+  .login-btn:hover::before { transform: scaleX(1); }
+  .login-btn:hover { color: var(--bg); box-shadow: var(--cyan-glow); }
+  .login-btn span { position: relative; z-index: 1; }
+
+  .demo-accounts {
+    margin-top: 16px;
+    padding: 12px;
+    background: rgba(0,0,0,0.3);
+    border-left: 2px solid var(--cyan2);
+    font-size: 11px;
+    color: var(--text-dim);
+    line-height: 1.8;
+  }
+
+  .err-msg {
+    background: var(--red-dim);
+    border: 1px solid var(--red);
+    color: var(--red);
+    padding: 8px 12px;
+    font-size: 12px;
+    margin-bottom: 16px;
+    display: none;
+    animation: slide-in 0.2s ease;
+  }
+  .err-msg.show { display: block; }
+
+  /* ========== MAIN APP ========== */
+  #app-screen {
+    display: none;
+    flex-direction: column;
+    height: 100vh;
+    overflow: hidden;
+  }
+  #app-screen.active { display: flex; }
+
+  /* TOPBAR */
+  .topbar {
+    height: 48px;
+    background: var(--bg2);
+    border-bottom: 1px solid var(--border);
+    display: flex;
+    align-items: center;
+    justify-content: space-between;
+    padding: 0 20px;
+    flex-shrink: 0;
+    position: relative;
+    z-index: 10;
+  }
+
+  .topbar-logo {
+    font-family: var(--font-display);
+    font-size: 16px;
+    font-weight: 700;
+    color: var(--cyan);
+    text-shadow: var(--cyan-glow);
+    letter-spacing: 3px;
+  }
+
+  .topbar-meta {
+    display: flex;
+    align-items: center;
+    gap: 20px;
+    font-size: 11px;
+    color: var(--text-dim);
+    letter-spacing: 1px;
+  }
+
+  .topbar-user {
+    display: flex;
+    align-items: center;
+    gap: 8px;
+    color: var(--text);
+  }
+
+  .user-dot {
+    width: 8px; height: 8px;
+    background: var(--green);
+    border-radius: 50%;
+    box-shadow: 0 0 6px var(--green);
+    animation: blink 2s ease infinite;
+  }
+
+  .clock {
+    font-size: 12px;
+    color: var(--cyan2);
+    font-family: var(--font-display);
+    letter-spacing: 1px;
+  }
+
+  /* BODY LAYOUT */
+  .app-body {
+    display: flex;
+    flex: 1;
+    overflow: hidden;
+  }
+
+  /* SIDEBAR */
+  .sidebar {
+    width: 220px;
+    background: var(--bg2);
+    border-right: 1px solid var(--border);
+    display: flex;
+    flex-direction: column;
+    flex-shrink: 0;
+    padding: 16px 0;
+  }
+
+  .nav-section {
+    font-size: 9px;
+    letter-spacing: 3px;
+    text-transform: uppercase;
+    color: var(--text-dim);
+    padding: 6px 16px 4px;
+    margin-top: 8px;
+  }
+
+  .nav-item {
+    display: flex;
+    align-items: center;
+    gap: 10px;
+    padding: 10px 16px;
+    cursor: pointer;
+    color: var(--text-dim);
+    font-size: 12px;
+    letter-spacing: 1px;
+    border-left: 2px solid transparent;
+    transition: all 0.15s;
+    text-transform: uppercase;
+    position: relative;
+  }
+  .nav-item:hover { color: var(--text); background: rgba(0,245,255,0.04); }
+  .nav-item.active {
+    color: var(--cyan);
+    background: var(--cyan-dim);
+    border-left-color: var(--cyan);
+    text-shadow: 0 0 8px rgba(0,245,255,0.4);
+  }
+
+  .nav-icon { width: 16px; text-align: center; font-size: 14px; }
+
+  .nav-badge {
+    margin-left: auto;
+    background: var(--red);
+    color: white;
+    font-size: 9px;
+    padding: 1px 5px;
+    border-radius: 0;
+    min-width: 18px;
+    text-align: center;
+  }
+
+  .sidebar-footer {
+    margin-top: auto;
+    padding: 16px;
+    border-top: 1px solid var(--border);
+  }
+
+  .session-info {
+    font-size: 10px;
+    color: var(--text-dim);
+    margin-bottom: 10px;
+    letter-spacing: 0.5px;
+    line-height: 1.8;
+  }
+
+  /* MAIN CONTENT */
+  .main-content {
+    flex: 1;
+    overflow: hidden;
+    display: flex;
+    flex-direction: column;
+  }
+
+  .tab-pane {
+    display: none;
+    flex-direction: column;
+    height: 100%;
+    overflow: hidden;
+    animation: fadeIn 0.2s ease;
+  }
+  .tab-pane.active { display: flex; }
+
+  .pane-header {
+    padding: 16px 20px 12px;
+    border-bottom: 1px solid var(--border);
+    display: flex;
+    align-items: center;
+    justify-content: space-between;
+    flex-shrink: 0;
+    background: var(--bg2);
+  }
+
+  .pane-title {
+    font-family: var(--font-display);
+    font-size: 14px;
+    font-weight: 700;
+    color: var(--cyan);
+    letter-spacing: 2px;
+    text-transform: uppercase;
+    display: flex;
+    align-items: center;
+    gap: 10px;
+  }
+
+  .pane-title .breadcrumb {
+    font-size: 10px;
+    color: var(--text-dim);
+    font-family: var(--font-main);
+    font-weight: 400;
+    letter-spacing: 1px;
+  }
+
+  .pane-body {
+    flex: 1;
+    overflow-y: auto;
+    padding: 16px 20px;
+  }
+
+  /* FILE TABLE */
+  .file-table {
+    width: 100%;
+    border-collapse: collapse;
+    font-size: 12px;
+  }
+
+  .file-table th {
+    font-size: 9px;
+    letter-spacing: 2px;
+    text-transform: uppercase;
+    color: var(--text-dim);
+    padding: 8px 12px;
+    border-bottom: 1px solid var(--border);
+    text-align: left;
+    background: rgba(0,0,0,0.2);
+    font-family: var(--font-display);
+    font-weight: 400;
+  }
+
+  .file-table td {
+    padding: 10px 12px;
+    border-bottom: 1px solid rgba(0,245,255,0.05);
+    vertical-align: middle;
+    transition: background 0.1s;
+  }
+
+  .file-table tr:hover td { background: rgba(0,245,255,0.03); }
+
+  .file-name {
+    display: flex;
+    align-items: center;
+    gap: 8px;
+    color: var(--text);
+    font-weight: bold;
+  }
+
+  .file-icon {
+    width: 22px; height: 22px;
+    display: flex; align-items: center; justify-content: center;
+    font-size: 12px;
+    background: var(--cyan-dim);
+    border: 1px solid var(--border);
+    color: var(--cyan);
+    flex-shrink: 0;
+  }
+
+  .progress-bar {
+    height: 2px;
+    background: rgba(0,245,255,0.1);
+    position: relative;
+    width: 80px;
+  }
+  .progress-fill {
+    height: 100%;
+    background: var(--cyan);
+    box-shadow: 0 0 4px var(--cyan);
+  }
+
+  /* ACTIONS ROW */
+  .actions { display: flex; gap: 6px; flex-wrap: nowrap; align-items: center; }
+
+  /* LOG TABLE */
+  .log-table { width: 100%; border-collapse: collapse; font-size: 12px; font-family: var(--font-main); }
+  .log-table tr { border-bottom: 1px solid rgba(0,245,255,0.04); }
+  .log-table tr:hover td { background: rgba(0,245,255,0.02); }
+  .log-table td { padding: 7px 12px; vertical-align: top; }
+  .log-num { color: var(--text-dim); font-size: 10px; width: 30px; }
+  .log-time { color: var(--cyan2); width: 80px; font-size: 11px; }
+  .log-user { color: var(--amber); width: 80px; }
+  .log-action { width: 80px; font-weight: bold; font-size: 11px; letter-spacing: 1px; }
+  .log-file { color: var(--text-dim); }
+  .log-status { width: 70px; font-size: 10px; letter-spacing: 1px; text-align: right; }
+
+  /* ADMIN STATS GRID */
+  .stats-grid {
+    display: grid;
+    grid-template-columns: repeat(4, 1fr);
+    gap: 12px;
+    margin-bottom: 20px;
+  }
+
+  .stat-card {
+    background: var(--bg2);
+    border: 1px solid var(--border);
+    padding: 16px;
+    position: relative;
+    overflow: hidden;
+    transition: border-color 0.2s;
+  }
+  .stat-card:hover { border-color: var(--border-bright); }
+  .stat-card::after {
+    content: '';
+    position: absolute;
+    bottom: 0; left: 0; right: 0;
+    height: 2px;
+  }
+  .stat-card.c-cyan::after { background: var(--cyan); box-shadow: 0 0 6px var(--cyan); }
+  .stat-card.c-green::after { background: var(--green); box-shadow: 0 0 6px var(--green); }
+  .stat-card.c-amber::after { background: var(--amber); box-shadow: 0 0 6px var(--amber); }
+  .stat-card.c-red::after { background: var(--red); box-shadow: 0 0 6px var(--red); }
+
+  .stat-label { font-size: 9px; letter-spacing: 3px; text-transform: uppercase; color: var(--text-dim); margin-bottom: 8px; }
+  .stat-value { font-family: var(--font-display); font-size: 32px; font-weight: 700; line-height: 1; }
+  .stat-card.c-cyan .stat-value { color: var(--cyan); text-shadow: var(--cyan-glow); }
+  .stat-card.c-green .stat-value { color: var(--green); text-shadow: 0 0 10px rgba(57,255,20,0.5); }
+  .stat-card.c-amber .stat-value { color: var(--amber); text-shadow: 0 0 10px rgba(255,183,0,0.5); }
+  .stat-card.c-red .stat-value { color: var(--red); text-shadow: 0 0 10px rgba(255,45,85,0.5); }
+
+  /* ADMIN PANELS */
+  .admin-grid { display: grid; grid-template-columns: 1fr 1fr; gap: 16px; }
+
+  .section-title {
+    font-size: 10px;
+    letter-spacing: 3px;
+    text-transform: uppercase;
+    color: var(--cyan2);
+    margin-bottom: 12px;
+    padding-bottom: 6px;
+    border-bottom: 1px solid var(--border);
+    font-family: var(--font-display);
+  }
+
+  /* USER CARDS */
+  .user-card {
+    background: rgba(0,0,0,0.3);
+    border: 1px solid var(--border);
+    padding: 12px;
+    margin-bottom: 8px;
+    display: flex;
+    align-items: center;
+    gap: 12px;
+    transition: border-color 0.2s;
+  }
+  .user-card:hover { border-color: var(--border-bright); }
+  .user-avatar {
+    width: 36px; height: 36px;
+    background: var(--cyan-dim);
+    border: 1px solid var(--border-bright);
+    display: flex; align-items: center; justify-content: center;
+    font-family: var(--font-display);
+    font-size: 13px;
+    font-weight: 700;
+    color: var(--cyan);
+    flex-shrink: 0;
+    text-shadow: var(--cyan-glow);
+  }
+  .user-info { flex: 1; }
+  .user-name { font-weight: bold; font-size: 13px; color: var(--text); letter-spacing: 1px; }
+  .user-meta { font-size: 10px; color: var(--text-dim); margin-top: 2px; letter-spacing: 0.5px; }
+
+  /* MODAL */
+  .modal-overlay {
+    position: fixed;
+    inset: 0;
+    background: rgba(0,5,10,0.85);
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    z-index: 200;
+    animation: fadeIn 0.15s ease;
+  }
+
+  .modal {
+    background: var(--bg2);
+    border: 1px solid var(--border-bright);
+    width: 420px;
+    max-width: 95vw;
+    max-height: 85vh;
+    overflow-y: auto;
+    box-shadow: 0 0 40px rgba(0,245,255,0.15);
+    animation: slide-in 0.2s ease;
+    position: relative;
+  }
+
+  .modal-header {
+    padding: 16px 20px 12px;
+    border-bottom: 1px solid var(--border);
+    display: flex;
+    align-items: center;
+    justify-content: space-between;
+    background: rgba(0,0,0,0.3);
+  }
+
+  .modal-title {
+    font-family: var(--font-display);
+    font-size: 12px;
+    font-weight: 700;
+    color: var(--cyan);
+    letter-spacing: 2px;
+    text-transform: uppercase;
+  }
+
+  .modal-close {
+    background: none;
+    border: none;
+    color: var(--text-dim);
+    cursor: pointer;
+    font-size: 18px;
+    padding: 0;
+    line-height: 1;
+    transition: color 0.1s;
+  }
+  .modal-close:hover { color: var(--red); }
+
+  .modal-body { padding: 20px; }
+
+  .modal-label {
+    font-size: 10px;
+    letter-spacing: 2px;
+    text-transform: uppercase;
+    color: var(--cyan2);
+    margin-bottom: 5px;
+    display: block;
+  }
+
+  .modal-field { margin-bottom: 16px; }
+
+  .modal-footer {
+    padding: 12px 20px;
+    border-top: 1px solid var(--border);
+    display: flex;
+    gap: 8px;
+    justify-content: flex-end;
+    background: rgba(0,0,0,0.2);
+  }
+
+  /* FILE CONTENT VIEWER */
+  .file-content {
+    background: rgba(0,0,0,0.5);
+    border: 1px solid var(--border);
+    padding: 14px;
+    font-family: var(--font-main);
+    font-size: 12px;
+    color: var(--text-dim);
+    line-height: 1.7;
+    max-height: 200px;
+    overflow-y: auto;
+    white-space: pre;
+  }
+
+  /* TOAST NOTIFICATIONS */
+  #toast-container {
+    position: fixed;
+    top: 60px;
+    right: 16px;
+    z-index: 1000;
+    display: flex;
+    flex-direction: column;
+    gap: 8px;
+  }
+
+  .toast {
+    padding: 10px 16px;
+    font-size: 12px;
+    border: 1px solid;
+    letter-spacing: 0.5px;
+    animation: slide-in 0.2s ease;
+    min-width: 260px;
+    display: flex;
+    align-items: center;
+    gap: 8px;
+    background: var(--bg2);
+  }
+  .toast.ok { border-color: var(--green); color: var(--green); }
+  .toast.err { border-color: var(--red); color: var(--red); }
+  .toast.warn { border-color: var(--amber); color: var(--amber); }
+  .toast.info { border-color: var(--cyan); color: var(--cyan); }
+
+  /* PERMISSION MATRIX */
+  .perm-matrix { width: 100%; border-collapse: collapse; font-size: 12px; }
+  .perm-matrix th { padding: 6px 10px; font-size: 9px; letter-spacing: 2px; text-transform: uppercase; color: var(--text-dim); border-bottom: 1px solid var(--border); text-align: left; }
+  .perm-matrix td { padding: 8px 10px; border-bottom: 1px solid rgba(0,245,255,0.04); }
+
+  /* ENCRYPT PROGRESS */
+  .enc-progress { margin: 10px 0; }
+  .enc-bar {
+    height: 3px;
+    background: rgba(191,95,255,0.1);
+    border: 1px solid rgba(191,95,255,0.3);
+    margin-bottom: 4px;
+    overflow: hidden;
+  }
+  .enc-fill {
+    height: 100%;
+    background: var(--purple);
+    box-shadow: 0 0 6px var(--purple);
+    animation: progress 1.2s ease-out forwards;
+  }
+
+  /* SEARCH BAR */
+  .search-bar {
+    display: flex;
+    align-items: center;
+    gap: 8px;
+    padding: 8px 20px;
+    background: rgba(0,0,0,0.3);
+    border-bottom: 1px solid var(--border);
+    flex-shrink: 0;
+  }
+  .search-prefix { color: var(--cyan2); font-size: 12px; }
+  .search-bar input {
+    background: transparent;
+    border: none;
+    color: var(--text);
+    font-size: 12px;
+    flex: 1;
+    padding: 2px 0;
+  }
+  .search-bar input:focus { box-shadow: none; }
+
+  /* EMPTY STATE */
+  .empty-state {
+    text-align: center;
+    padding: 60px 20px;
+    color: var(--text-dim);
+  }
+  .empty-state .icon { font-size: 40px; margin-bottom: 12px; opacity: 0.4; }
+  .empty-state p { font-size: 12px; letter-spacing: 1px; }
+
+  /* DENIED OVERLAY */
+  .access-denied-flash {
+    position: fixed;
+    inset: 0;
+    background: rgba(255,45,85,0.08);
+    pointer-events: none;
+    z-index: 9997;
+    animation: fadeIn 0.1s ease;
+  }
+
+  /* TYPING CURSOR */
+  .cursor { display: inline-block; animation: blink 1s step-end infinite; }
+
+  /* PARTICLES */
+  .particle {
+    position: fixed;
+    width: 2px; height: 2px;
+    background: var(--cyan);
+    border-radius: 50%;
+    pointer-events: none;
+    box-shadow: 0 0 4px var(--cyan);
+    animation: float-particle linear forwards;
+  }
+
+  /* LOADING BAR */
+  .loading-bar {
+    height: 2px;
+    background: var(--cyan);
+    box-shadow: 0 0 6px var(--cyan);
+    animation: progress 0.8s ease-out forwards;
+  }
+
+  /* DIVIDER */
+  .cyber-divider {
+    display: flex;
+    align-items: center;
+    gap: 8px;
+    margin: 8px 0;
+  }
+  .cyber-divider::before, .cyber-divider::after {
+    content: '';
+    flex: 1;
+    height: 1px;
+    background: var(--border);
+  }
+  .cyber-divider span { font-size: 9px; color: var(--text-dim); letter-spacing: 2px; text-transform: uppercase; }
+
+  /* CHECKBOX CUSTOM */
+  .check-row {
+    display: flex; align-items: center; gap: 8px; font-size: 12px; margin-bottom: 8px; cursor: pointer;
+  }
+  .check-box {
+    width: 16px; height: 16px; border: 1px solid var(--border-bright);
+    display: flex; align-items: center; justify-content: center;
+    cursor: pointer; flex-shrink: 0; transition: all 0.15s;
+  }
+  .check-box.checked { background: var(--cyan-dim); border-color: var(--cyan); }
+  .check-box.checked::after { content: '✓'; font-size: 10px; color: var(--cyan); }
+
+  /* ACTIVITY HEATMAP (admin) */
+  .heatmap { display: flex; gap: 3px; flex-wrap: wrap; }
+  .hm-cell {
+    width: 12px; height: 12px;
+    background: rgba(0,245,255,0.05);
+    border: 1px solid rgba(0,245,255,0.08);
+    transition: background 0.2s;
+    cursor: pointer;
+    position: relative;
+  }
+  .hm-cell:hover::after {
+    content: attr(data-tip);
+    position: absolute;
+    bottom: 18px; left: 50%;
+    transform: translateX(-50%);
+    background: var(--bg2);
+    border: 1px solid var(--border);
+    padding: 3px 6px;
+    font-size: 10px;
+    white-space: nowrap;
+    z-index: 10;
+    color: var(--text);
+  }
+</style>
+</head>
+<body>
+
+<div class="scan-line"></div>
+<div class="corner tl"></div>
+<div class="corner tr"></div>
+<div class="corner bl"></div>
+<div class="corner br"></div>
+<div id="toast-container"></div>
+
+<!-- ====== LOGIN SCREEN ====== -->
+<div id="login-screen">
+  <div class="login-box">
+    <div class="login-header">
+      <div class="login-logo">SECUREFS</div>
+      <div class="login-subtitle">// encrypted file vault v2.4.1 //</div>
+    </div>
+    <div class="login-form">
+      <div id="login-err" class="err-msg">⚠ ACCESS DENIED — INVALID CREDENTIALS</div>
+      <div class="field-wrap">
+        <label class="field-label">// user identifier</label>
+        <div class="input-wrap">
+          <span class="prefix">$</span>
+          <input type="text" id="l-user" placeholder="enter username" autocomplete="off" />
+        </div>
+      </div>
+      <div class="field-wrap">
+        <label class="field-label">// auth token</label>
+        <div class="input-wrap">
+          <span class="prefix">*</span>
+          <input type="password" id="l-pass" placeholder="enter password" />
+        </div>
+      </div>
+      <button class="login-btn" onclick="doLogin()"><span>// AUTHENTICATE //</span></button>
+      <div class="demo-accounts">
+        <span style="color:var(--cyan2)">// demo credentials //</span><br>
+        admin / admin123 &nbsp;|&nbsp; alice / alice123 &nbsp;|&nbsp; bob / bob123
+      </div>
+    </div>
+  </div>
+</div>
+
+<!-- ====== MAIN APP ====== -->
+<div id="app-screen">
+
+  <!-- TOPBAR -->
+  <div class="topbar">
+    <div style="display:flex;align-items:center;gap:16px">
+      <div class="topbar-logo">SECUREFS</div>
+      <div style="font-size:9px;color:var(--text-dim);letter-spacing:2px">//&nbsp;<span id="top-path">FILES</span></div>
+    </div>
+    <div class="topbar-meta">
+      <div class="clock" id="clock">00:00:00</div>
+      <div class="topbar-user">
+        <div class="user-dot"></div>
+        <span id="top-user" style="letter-spacing:1px"></span>
+        <span id="top-role" style="font-size:10px;color:var(--text-dim)"></span>
+      </div>
+      <button class="btn sm danger" onclick="doLogout()">LOGOUT</button>
+    </div>
+  </div>
+
+  <div class="app-body">
+    <!-- SIDEBAR -->
+    <div class="sidebar">
+      <div class="nav-section">// system</div>
+      <div class="nav-item active" id="nav-files" onclick="showTab('files')">
+        <span class="nav-icon">📁</span> FILES
+      </div>
+      <div class="nav-item" id="nav-upload" onclick="openUploadModal()">
+        <span class="nav-icon">↑</span> UPLOAD
+      </div>
+      <div class="nav-section">// security</div>
+      <div class="nav-item" id="nav-perms" onclick="showTab('perms')">
+        <span class="nav-icon">🔒</span> PERMISSIONS
+      </div>
+      <div class="nav-item" id="nav-logs" onclick="showTab('logs')">
+        <span class="nav-icon">📋</span> AUDIT LOG
+        <span class="nav-badge" id="log-badge">0</span>
+      </div>
+      <div class="nav-section" id="admin-section" style="display:none">// admin</div>
+      <div class="nav-item" id="nav-admin" onclick="showTab('admin')" style="display:none">
+        <span class="nav-icon">⚙</span> DASHBOARD
+      </div>
+      <div class="nav-item" id="nav-users" onclick="showTab('users')" style="display:none">
+        <span class="nav-icon">👥</span> USERS
+      </div>
+      <div class="sidebar-footer">
+        <div class="session-info" id="session-info"></div>
+        <button class="btn sm danger" style="width:100%" onclick="doLogout()">⏻ END SESSION</button>
+      </div>
+    </div>
+
+    <!-- MAIN CONTENT -->
+    <div class="main-content">
+
+      <!-- FILES TAB -->
+      <div class="tab-pane active" id="tab-files">
+        <div class="pane-header">
+          <div class="pane-title">
+            📁 FILE VAULT
+            <span class="breadcrumb">// <span id="file-count">0</span> objects stored</span>
+          </div>
+          <div style="display:flex;gap:8px">
+            <button class="btn sm" onclick="openUploadModal()">+ NEW FILE</button>
+            <select id="sort-by" class="btn sm" onchange="renderFiles()" style="padding:4px 8px;cursor:pointer">
+              <option value="name">SORT: NAME</option>
+              <option value="owner">SORT: OWNER</option>
+              <option value="enc">SORT: ENCRYPTED</option>
+              <option value="size">SORT: SIZE</option>
+            </select>
+          </div>
+        </div>
+        <div class="search-bar">
+          <span class="search-prefix">SEARCH:</span>
+          <input type="text" id="search-files" placeholder="filter files..." oninput="renderFiles()" />
+        </div>
+        <div class="pane-body" style="padding:0">
+          <table class="file-table">
+            <thead>
+              <tr>
+                <th>FILENAME</th>
+                <th>OWNER</th>
+                <th>SIZE</th>
+                <th>TYPE</th>
+                <th>ENCRYPTED</th>
+                <th>YOUR ACCESS</th>
+                <th>ACTIONS</th>
+              </tr>
+            </thead>
+            <tbody id="file-tbody"></tbody>
+          </table>
+          <div id="file-empty" class="empty-state" style="display:none">
+            <div class="icon">📂</div>
+            <p>NO FILES FOUND</p>
+          </div>
+        </div>
+      </div>
+
+      <!-- PERMISSIONS TAB -->
+      <div class="tab-pane" id="tab-perms">
+        <div class="pane-header">
+          <div class="pane-title">🔒 PERMISSIONS MATRIX</div>
+        </div>
+        <div class="pane-body">
+          <div id="perm-content"></div>
+        </div>
+      </div>
+
+      <!-- LOGS TAB -->
+      <div class="tab-pane" id="tab-logs">
+        <div class="pane-header">
+          <div class="pane-title">
+            📋 AUDIT LOG
+            <span class="breadcrumb">// tamper-evident event stream</span>
+          </div>
+          <div style="display:flex;gap:8px;align-items:center">
+            <select id="log-filter" class="btn sm" onchange="renderLogs()" style="padding:4px 8px;cursor:pointer">
+              <option value="all">ALL EVENTS</option>
+              <option value="ok">OK ONLY</option>
+              <option value="denied">DENIED ONLY</option>
+            </select>
+            <button class="btn sm danger" onclick="clearLogs()">CLEAR LOGS</button>
+          </div>
+        </div>
+        <div class="pane-body" style="padding:0">
+          <table class="log-table">
+            <thead>
+              <tr style="background:rgba(0,0,0,0.3)">
+                <td class="log-num" style="padding:8px 12px;font-size:9px;letter-spacing:2px;color:var(--text-dim)">#</td>
+                <td style="padding:8px 12px;font-size:9px;letter-spacing:2px;color:var(--text-dim)">TIMESTAMP</td>
+                <td style="padding:8px 12px;font-size:9px;letter-spacing:2px;color:var(--text-dim)">USER</td>
+                <td style="padding:8px 12px;font-size:9px;letter-spacing:2px;color:var(--text-dim)">ACTION</td>
+                <td style="padding:8px 12px;font-size:9px;letter-spacing:2px;color:var(--text-dim)">RESOURCE</td>
+                <td style="padding:8px 12px;font-size:9px;letter-spacing:2px;color:var(--text-dim);text-align:right">STATUS</td>
+              </tr>
+            </thead>
+            <tbody id="log-tbody"></tbody>
+          </table>
+        </div>
+      </div>
+
+      <!-- ADMIN TAB -->
+      <div class="tab-pane" id="tab-admin">
+        <div class="pane-header">
+          <div class="pane-title">⚙ SYSTEM DASHBOARD</div>
+          <span style="font-size:10px;color:var(--text-dim);letter-spacing:1px">ADMIN ACCESS ONLY</span>
+        </div>
+        <div class="pane-body">
+          <div class="stats-grid" id="admin-stats"></div>
+          <div style="margin-bottom:20px">
+            <div class="section-title">// ACTIVITY HEATMAP (last 30 ops)</div>
+            <div class="heatmap" id="heatmap"></div>
+          </div>
+          <div>
+            <div class="section-title">// ENCRYPTION COVERAGE</div>
+            <div id="enc-coverage"></div>
+          </div>
+        </div>
+      </div>
+
+      <!-- USERS TAB -->
+      <div class="tab-pane" id="tab-users">
+        <div class="pane-header">
+          <div class="pane-title">👥 USER MANAGEMENT</div>
+          <button class="btn sm" onclick="openAddUser()">+ ADD USER</button>
+        </div>
+        <div class="pane-body">
+          <div id="users-list"></div>
+        </div>
+      </div>
+
+    </div>
+  </div>
+</div>
+
+<!-- MODAL CONTAINER -->
+<div id="modal-host"></div>
+
+<script>
+// ========== DATA STORE ==========
+const USERS = {
+  admin: { password:'admin123', role:'admin', created:'2024-01-01' },
+  alice: { password:'alice123', role:'user', created:'2024-02-14' },
+  bob:   { password:'bob123',   role:'user', created:'2024-03-05' }
+};
+
+let FILES = [
+  { id:1, name:'financial_report_q1.pdf',  owner:'alice', sizeKB:2150, type:'PDF',  encrypted:true,
+    permissions:{ admin:'write', alice:'write', bob:'read' },
+    content:'QUARTERLY FINANCIAL REPORT — Q1 2024\n---\nRevenue: $4.2M (+12% YoY)\nExpenses: $3.1M\nProfit: $1.1M\nKey growth: SaaS division +34%' },
+  { id:2, name:'design_specifications.docx', owner:'alice', sizeKB:540, type:'DOCX', encrypted:false,
+    permissions:{ admin:'write', alice:'write', bob:'none' },
+    content:'DESIGN SPECIFICATIONS v3.2\n---\nComponent library update\nNew color tokens: #00F5FF (primary)\nAnimation system: 200ms ease\nGrid: 12-col, 24px gutter' },
+  { id:3, name:'server_config.env', owner:'admin', sizeKB:12, type:'ENV', encrypted:true,
+    permissions:{ admin:'write', alice:'read', bob:'none' },
+    content:'DB_HOST=10.0.0.2\nDB_PORT=5432\nDB_PASS=••••••••\nAPI_SECRET=••••••••\nSMTP_HOST=mail.corp.io' },
+  { id:4, name:'team_photo.png',       owner:'bob',   sizeKB:3840, type:'IMG', encrypted:false,
+    permissions:{ admin:'write', alice:'read', bob:'write' },
+    content:'[Binary image data — 3840 KB]\nDimensions: 4032 × 3024\nFormat: PNG\nCamera: iPhone 15 Pro\nDate: 2024-03-15' },
+  { id:5, name:'security_audit.log',   owner:'admin', sizeKB:89,  type:'LOG', encrypted:true,
+    permissions:{ admin:'write', alice:'none', bob:'none' },
+    content:'[2024-03-15 09:12:44] SCAN COMPLETE — 0 vulnerabilities\n[2024-03-15 09:15:02] SSL cert expires: 2025-01-20\n[2024-03-15 09:20:11] Firewall rules: 47 active' }
+];
+
+let LOGS = [
+  { id:1, ts: ts(), user:'system', action:'BOOT',   resource:'system v2.4.1', status:'ok' },
+  { id:2, ts: ts(), user:'alice',  action:'LOGIN',  resource:'-', status:'ok' },
+  { id:3, ts: ts(), user:'alice',  action:'READ',   resource:'financial_report_q1.pdf', status:'ok' },
+  { id:4, ts: ts(), user:'bob',    action:'LOGIN',  resource:'-', status:'ok' },
+  { id:5, ts: ts(), user:'bob',    action:'READ',   resource:'design_specifications.docx', status:'denied' },
+  { id:6, ts: ts(), user:'admin',  action:'LOGIN',  resource:'-', status:'ok' }
+];
+
+let currentUser = null;
+let fileIdCtr = 6;
+let logIdCtr = 7;
+let sessionStart = null;
+let sessionTimer = null;
+
+function ts() {
+  return new Date().toLocaleTimeString('en-US', { hour12:false });
+}
+
+function addLog(user, action, resource, status) {
+  LOGS.unshift({ id: logIdCtr++, ts: ts(), user, action, resource, status });
+  updateLogBadge();
+  if (status === 'denied') flashDenied();
+}
+
+function updateLogBadge() {
+  const badge = document.getElementById('log-badge');
+  const denied = LOGS.filter(l => l.status === 'denied').length;
+  badge.textContent = denied;
+  badge.style.display = denied > 0 ? 'block' : 'none';
+}
+
+function flashDenied() {
+  const el = document.createElement('div');
+  el.className = 'access-denied-flash';
+  document.body.appendChild(el);
+  setTimeout(() => el.remove(), 500);
+}
+
+// ========== AUTH ==========
+function doLogin() {
+  const u = document.getElementById('l-user').value.trim();
+  const p = document.getElementById('l-pass').value;
+  const err = document.getElementById('login-err');
+  if (USERS[u] && USERS[u].password === p) {
+    currentUser = u;
+    err.classList.remove('show');
+    addLog(u, 'LOGIN', 'terminal session', 'ok');
+    sessionStart = Date.now();
+    document.getElementById('login-screen').style.display = 'none';
+    document.getElementById('app-screen').classList.add('active');
+    document.getElementById('top-user').textContent = u.toUpperCase();
+    document.getElementById('top-role').textContent = '[' + USERS[u].role.toUpperCase() + ']';
+    if (USERS[u].role === 'admin') {
+      document.getElementById('admin-section').style.display = 'block';
+      document.getElementById('nav-admin').style.display = 'flex';
+      document.getElementById('nav-users').style.display = 'flex';
+    }
+    showTab('files');
+    startClock();
+    spawnParticles();
+    toast('Session authenticated for ' + u.toUpperCase(), 'ok');
+  } else {
+    err.classList.add('show');
+    addLog(u || 'unknown', 'LOGIN', 'terminal', 'denied');
+    toast('Access denied — invalid credentials', 'err');
+    document.getElementById('l-pass').value = '';
+    document.getElementById('l-pass').focus();
+  }
+}
+
+function doLogout() {
+  addLog(currentUser, 'LOGOUT', 'terminal session', 'ok');
+  currentUser = null;
+  if (sessionTimer) clearInterval(sessionTimer);
+  document.getElementById('app-screen').classList.remove('active');
+  document.getElementById('login-screen').style.display = 'flex';
+  document.getElementById('l-user').value = '';
+  document.getElementById('l-pass').value = '';
+  document.getElementById('nav-admin').style.display = 'none';
+  document.getElementById('nav-users').style.display = 'none';
+  document.getElementById('admin-section').style.display = 'none';
+  toast('Session terminated', 'warn');
+}
+
+// ========== CLOCK ==========
+function startClock() {
+  sessionTimer = setInterval(() => {
+    document.getElementById('clock').textContent = new Date().toLocaleTimeString('en-US', { hour12:false });
+    const elapsed = Math.floor((Date.now() - sessionStart) / 1000);
+    const m = String(Math.floor(elapsed/60)).padStart(2,'0');
+    const s = String(elapsed % 60).padStart(2,'0');
+    document.getElementById('session-info').innerHTML =
+      `USER: <span style="color:var(--cyan)">${currentUser}</span><br>` +
+      `ROLE: <span style="color:var(--amber)">${USERS[currentUser]?.role||''}</span><br>` +
+      `SESSION: <span style="color:var(--green)">${m}:${s}</span><br>` +
+      `FILES: <span style="color:var(--cyan)">${FILES.filter(f=>f.owner===currentUser).length}</span>`;
+  }, 1000);
+}
+
+// ========== TABS ==========
+function showTab(name) {
+  document.querySelectorAll('.tab-pane').forEach(p => p.classList.remove('active'));
+  document.querySelectorAll('.nav-item').forEach(n => n.classList.remove('active'));
+  document.getElementById('tab-' + name).classList.add('active');
+  const navEl = document.getElementById('nav-' + name);
+  if (navEl) navEl.classList.add('active');
+  document.getElementById('top-path').textContent = name.toUpperCase();
+  if (name === 'files') renderFiles();
+  if (name === 'logs') renderLogs();
+  if (name === 'admin') renderAdmin();
+  if (name === 'users') renderUsers();
+  if (name === 'perms') renderPerms();
+}
+
+// ========== FILES ==========
+function getAccess(file, user) {
+  if (USERS[user] && USERS[user].role === 'admin') return 'write';
+  return file.permissions[user] || 'none';
+}
+
+function fileTypeIcon(type) {
+  const icons = { PDF:'📄', DOCX:'📝', ENV:'⚙', IMG:'🖼', LOG:'📋', TXT:'📃', ZIP:'📦', CSV:'📊' };
+  return icons[type] || '📄';
+}
+
+function formatSize(kb) {
+  if (kb >= 1024) return (kb/1024).toFixed(1) + ' MB';
+  return kb + ' KB';
+}
+
+function renderFiles() {
+  const tbody = document.getElementById('file-tbody');
+  const empty = document.getElementById('file-empty');
+  const search = (document.getElementById('search-files')?.value || '').toLowerCase();
+  const sort = document.getElementById('sort-by')?.value || 'name';
+
+  let visible = FILES.filter(f => {
+    const acc = getAccess(f, currentUser);
+    return acc !== 'none' || USERS[currentUser].role === 'admin';
+  }).filter(f => f.name.toLowerCase().includes(search) || f.owner.toLowerCase().includes(search));
+
+  visible.sort((a,b) => {
+    if (sort === 'name') return a.name.localeCompare(b.name);
+    if (sort === 'owner') return a.owner.localeCompare(b.owner);
+    if (sort === 'enc') return b.encrypted - a.encrypted;
+    if (sort === 'size') return b.sizeKB - a.sizeKB;
+    return 0;
+  });
+
+  document.getElementById('file-count').textContent = visible.length;
+
+  if (visible.length === 0) {
+    tbody.innerHTML = '';
+    empty.style.display = 'block';
+    return;
+  }
+  empty.style.display = 'none';
+
+  tbody.innerHTML = visible.map(f => {
+    const acc = getAccess(f, currentUser);
+    const canRead = acc !== 'none';
+    const canWrite = acc === 'write';
+    const canDel = f.owner === currentUser || USERS[currentUser].role === 'admin';
+    const sizePct = Math.min(100, Math.round(f.sizeKB / 40));
+    return `<tr>
+      <td>
+        <div class="file-name">
+          <div class="file-icon">${fileTypeIcon(f.type)}</div>
+          <div>
+            <div>${f.encrypted ? '<span style="color:var(--purple);font-size:10px">🔒 </span>' : ''}${f.name}</div>
+            <div style="font-size:10px;color:var(--text-dim);margin-top:2px">${f.type}</div>
+          </div>
+        </div>
+      </td>
+      <td><span style="color:var(--amber)">${f.owner}</span></td>
+      <td>
+        <div style="color:var(--text-dim)">${formatSize(f.sizeKB)}</div>
+        <div class="progress-bar" style="margin-top:4px"><div class="progress-fill" style="width:${sizePct}%"></div></div>
+      </td>
+      <td><span style="color:var(--cyan2);font-size:11px;letter-spacing:1px">${f.type}</span></td>
+      <td>${f.encrypted
+        ? '<span class="tag enc">AES-256</span>'
+        : '<span style="color:var(--text-dim);font-size:11px">PLAIN</span>'}</td>
+      <td><span class="tag ${acc}">${acc.toUpperCase()}</span></td>
+      <td>
+        <div class="actions">
+          ${canRead ? `<button class="btn sm" onclick="viewFile(${f.id})">VIEW</button>` : ''}
+          ${canWrite ? `<button class="btn sm amber" onclick="openPermsModal(${f.id})">PERMS</button>` : ''}
+          ${f.encrypted && canWrite ? `<button class="btn sm" style="color:var(--purple);border-color:var(--purple)" onclick="toggleEncrypt(${f.id})">DECRYPT</button>` : ''}
+          ${!f.encrypted && canWrite ? `<button class="btn sm" style="color:var(--purple);border-color:var(--purple)" onclick="toggleEncrypt(${f.id})">ENCRYPT</button>` : ''}
+          ${canDel ? `<button class="btn sm danger" onclick="deleteFile(${f.id})">DEL</button>` : ''}
+          ${!canRead && USERS[currentUser].role !== 'admin' ? '<span style="font-size:10px;color:var(--text-dim)">NO ACCESS</span>' : ''}
+        </div>
+      </td>
+    </tr>`;
+  }).join('');
+}
+
+function viewFile(id) {
+  const f = FILES.find(x => x.id === id);
+  const acc = getAccess(f, currentUser);
+  if (acc === 'none' && USERS[currentUser].role !== 'admin') {
+    addLog(currentUser, 'READ', f.name, 'denied');
+    toast('ACCESS DENIED — insufficient permissions', 'err');
+    return;
+  }
+  addLog(currentUser, 'READ', f.name, 'ok');
+  showModal({
+    title: '// FILE VIEWER',
+    body: `
+      <div style="margin-bottom:12px">
+        <div style="display:flex;align-items:center;gap:10px;margin-bottom:12px">
+          <div class="file-icon" style="width:36px;height:36px;font-size:18px">${fileTypeIcon(f.type)}</div>
+          <div>
+            <div style="font-size:14px;color:var(--text)">${f.name}</div>
+            <div style="font-size:11px;color:var(--text-dim);margin-top:2px">
+              ${f.owner} · ${formatSize(f.sizeKB)} · ${f.type}
+            </div>
+          </div>
+        </div>
+        ${f.encrypted ? `<div class="enc-progress">
+          <div style="font-size:10px;color:var(--purple);letter-spacing:1px;margin-bottom:4px">// DECRYPTING AES-256 //</div>
+          <div class="enc-bar"><div class="enc-fill"></div></div>
+        </div>` : ''}
+      </div>
+      <div class="modal-label">// file content</div>
+      <div class="file-content">${f.content}</div>
+    `,
+    actions: `<button class="btn" onclick="closeModal()">CLOSE</button>`
+  });
+}
+
+function toggleEncrypt(id) {
+  const f = FILES.find(x => x.id === id);
+  const acc = getAccess(f, currentUser);
+  if (acc !== 'write') { toast('Write access required', 'err'); return; }
+  const wasEnc = f.encrypted;
+  f.encrypted = !f.encrypted;
+  addLog(currentUser, wasEnc ? 'DECRYPT' : 'ENCRYPT', f.name, 'ok');
+  toast(f.name + (f.encrypted ? ' encrypted (AES-256)' : ' decrypted'), f.encrypted ? 'info' : 'warn');
+  renderFiles();
+}
+
+function deleteFile(id) {
+  const f = FILES.find(x => x.id === id);
+  showModal({
+    title: '// CONFIRM DELETE',
+    body: `<div style="color:var(--red);margin-bottom:12px">⚠ This action is permanent and logged.</div>
+           <div style="color:var(--text)">Delete: <span style="color:var(--amber)">${f.name}</span>?</div>`,
+    actions: `
+      <button class="btn danger" onclick="confirmDelete(${id})">CONFIRM DELETE</button>
+      <button class="btn" onclick="closeModal()">CANCEL</button>
+    `
+  });
+}
+
+function confirmDelete(id) {
+  const f = FILES.find(x => x.id === id);
+  addLog(currentUser, 'DELETE', f.name, 'ok');
+  FILES = FILES.filter(x => x.id !== id);
+  closeModal();
+  renderFiles();
+  toast(f.name + ' deleted', 'warn');
+}
+
+// ========== UPLOAD ==========
+function openUploadModal() {
+  showModal({
+    title: '// UPLOAD FILE',
+    body: `
+      <div class="modal-field">
+        <label class="modal-label">filename</label>
+        <input type="text" id="up-name" placeholder="e.g. report.pdf" />
+      </div>
+      <div class="modal-field">
+        <label class="modal-label">file type</label>
+        <select id="up-type">
+          <option>PDF</option><option>DOCX</option><option>TXT</option>
+          <option>IMG</option><option>CSV</option><option>LOG</option><option>ZIP</option>
+        </select>
+      </div>
+      <div class="modal-field">
+        <label class="modal-label">size (KB)</label>
+        <input type="number" id="up-size" placeholder="e.g. 256" value="128" />
+      </div>
+      <div class="modal-field">
+        <label class="modal-label">file content (simulated)</label>
+        <textarea id="up-content" rows="4" placeholder="Enter file content..." style="resize:none;font-size:12px"></textarea>
+      </div>
+      <div class="cyber-divider"><span>access control</span></div>
+      ${Object.keys(USERS).filter(u => u !== currentUser && USERS[u].role !== 'admin').map(u => `
+      <div style="display:flex;align-items:center;justify-content:space-between;margin-bottom:8px">
+        <span style="font-size:12px;color:var(--text)">${u}</span>
+        <select id="perm-${u}" style="width:140px">
+          <option value="none">no access</option>
+          <option value="read">read only</option>
+          <option value="write">read + write</option>
+        </select>
+      </div>`).join('')}
+      <div class="cyber-divider"><span>encryption</span></div>
+      <div class="check-row" onclick="toggleCheck('up-enc')">
+        <div class="check-box" id="up-enc"></div>
+        <span style="font-size:12px">Encrypt with AES-256</span>
+        <span style="font-size:10px;color:var(--text-dim);margin-left:auto">recommended</span>
+      </div>
+    `,
+    actions: `
+      <button class="btn success" onclick="doUpload()">UPLOAD FILE</button>
+      <button class="btn" onclick="closeModal()">CANCEL</button>
+    `
+  });
+}
+
+function toggleCheck(id) {
+  const el = document.getElementById(id);
+  el.classList.toggle('checked');
+}
+
+function doUpload() {
+  const name = document.getElementById('up-name').value.trim();
+  if (!name) { toast('Filename required', 'err'); return; }
+  const type = document.getElementById('up-type').value;
+  const sizeKB = parseInt(document.getElementById('up-size').value) || 128;
+  const content = document.getElementById('up-content').value || '[No content]';
+  const encrypted = document.getElementById('up-enc').classList.contains('checked');
+  const perms = { admin:'write' };
+  perms[currentUser] = 'write';
+  Object.keys(USERS).filter(u => u !== currentUser && USERS[u].role !== 'admin').forEach(u => {
+    const sel = document.getElementById('perm-' + u);
+    perms[u] = sel ? sel.value : 'none';
+  });
+  FILES.push({ id: fileIdCtr++, name, owner: currentUser, sizeKB, type, encrypted, permissions: perms, content });
+  addLog(currentUser, 'UPLOAD', name, 'ok');
+  closeModal();
+  renderFiles();
+  toast(name + ' uploaded' + (encrypted ? ' (AES-256)' : ''), 'ok');
+}
+
+// ========== PERMISSIONS ==========
+function openPermsModal(id) {
+  const f = FILES.find(x => x.id === id);
+  const otherUsers = Object.keys(USERS).filter(u => u !== f.owner && USERS[u].role !== 'admin');
+  showModal({
+    title: '// MANAGE PERMISSIONS — ' + f.name,
+    body: `
+      <div style="font-size:11px;color:var(--text-dim);margin-bottom:14px;letter-spacing:0.5px">
+        Modify access levels for each user. Admin always has full write access.
+      </div>
+      ${otherUsers.map(u => `
+      <div style="display:flex;align-items:center;justify-content:space-between;padding:10px 0;border-bottom:1px solid var(--border)">
+        <div>
+          <div style="font-size:13px;color:var(--text)">${u}</div>
+          <div style="font-size:10px;color:var(--text-dim)">${USERS[u].role}</div>
+        </div>
+        <select id="mp-${u}" onchange="updatePerm(${f.id},'${u}',this.value)" style="width:150px">
+          <option value="none" ${f.permissions[u]==='none'?'selected':''}>no access</option>
+          <option value="read" ${f.permissions[u]==='read'?'selected':''}>read only</option>
+          <option value="write" ${f.permissions[u]==='write'?'selected':''}>read + write</option>
+        </select>
+      </div>`).join('')}
+    `,
+    actions: `<button class="btn" onclick="closeModal()">DONE</button>`
+  });
+}
+
+function updatePerm(fileId, user, val) {
+  const f = FILES.find(x => x.id === fileId);
+  f.permissions[user] = val;
+  addLog(currentUser, 'CHMOD', f.name + ' → ' + user + ':' + val, 'ok');
+  toast('Permission updated: ' + user + ' → ' + val, 'info');
+}
+
+function renderPerms() {
+  const el = document.getElementById('perm-content');
+  const myFiles = FILES.filter(f => getAccess(f, currentUser) !== 'none' || USERS[currentUser].role === 'admin');
+  el.innerHTML = myFiles.map(f => `
+    <div style="margin-bottom:16px;background:var(--bg2);border:1px solid var(--border);padding:14px">
+      <div style="display:flex;align-items:center;justify-content:space-between;margin-bottom:10px">
+        <div class="file-name">
+          <div class="file-icon" style="font-size:14px">${fileTypeIcon(f.type)}</div>
+          <span>${f.name}</span>
+        </div>
+        ${getAccess(f, currentUser) === 'write' ? `<button class="btn sm amber" onclick="openPermsModal(${f.id})">EDIT PERMS</button>` : ''}
+      </div>
+      <table class="perm-matrix">
+        <thead><tr><th>USER</th><th>ROLE</th><th>ACCESS</th></tr></thead>
+        <tbody>
+          ${Object.entries(USERS).map(([u, ud]) => `
+          <tr>
+            <td style="color:var(--amber)">${u}</td>
+            <td><span class="tag ${ud.role}">${ud.role}</span></td>
+            <td><span class="tag ${getAccess(f, u)}">${getAccess(f, u).toUpperCase()}</span></td>
+          </tr>`).join('')}
+        </tbody>
+      </table>
+    </div>
+  `).join('');
+}
+
+// ========== LOGS ==========
+function renderLogs() {
+  const tbody = document.getElementById('log-tbody');
+  const filter = document.getElementById('log-filter')?.value || 'all';
+  let logs = filter === 'all' ? LOGS : LOGS.filter(l => l.status === filter);
+  tbody.innerHTML = logs.map((l, i) => {
+    const statusColor = l.status === 'ok' ? 'var(--green)' : l.status === 'denied' ? 'var(--red)' : 'var(--amber)';
+    const actionColor = l.action === 'LOGIN' ? 'var(--cyan)' : l.action === 'DELETE' ? 'var(--red)' : l.action === 'UPLOAD' ? 'var(--green)' : l.action === 'CHMOD' ? 'var(--amber)' : l.action === 'ENCRYPT' ? 'var(--purple)' : 'var(--text)';
+    return `<tr>
+      <td class="log-num" style="padding:7px 12px">${String(logs.length - i).padStart(3,'0')}</td>
+      <td class="log-time" style="padding:7px 12px">${l.ts}</td>
+      <td class="log-user" style="padding:7px 12px">${l.user}</td>
+      <td class="log-action" style="padding:7px 12px;color:${actionColor}">${l.action}</td>
+      <td class="log-file" style="padding:7px 12px">${l.resource}</td>
+      <td class="log-status" style="padding:7px 12px;color:${statusColor}">${l.status.toUpperCase()}</td>
+    </tr>`;
+  }).join('');
+  updateLogBadge();
+}
+
+function clearLogs() {
+  LOGS = [{ id: logIdCtr++, ts: ts(), user: currentUser, action: 'CLEAR_LOGS', resource: 'audit.log', status: 'ok' }];
+  renderLogs();
+  toast('Audit log cleared', 'warn');
+}
+
+// ========== ADMIN ==========
+function renderAdmin() {
+  const stats = document.getElementById('admin-stats');
+  const denied = LOGS.filter(l => l.status === 'denied').length;
+  const encFiles = FILES.filter(f => f.encrypted).length;
+  stats.innerHTML = [
+    { label:'TOTAL FILES', value: FILES.length, cls:'c-cyan' },
+    { label:'ACTIVE USERS', value: Object.keys(USERS).length, cls:'c-green' },
+    { label:'ENCRYPTED', value: encFiles, cls:'c-amber' },
+    { label:'ACCESS DENIED', value: denied, cls:'c-red' }
+  ].map(s => `
+    <div class="stat-card ${s.cls}">
+      <div class="stat-label">${s.label}</div>
+      <div class="stat-value">${s.value}</div>
+    </div>
+  `).join('');
+
+  const heatmap = document.getElementById('heatmap');
+  const recent30 = LOGS.slice(0, 30);
+  const colors = { ok:'rgba(57,255,20,0.5)', denied:'rgba(255,45,85,0.7)', default:'rgba(0,245,255,0.2)' };
+  heatmap.innerHTML = recent30.map(l =>
+    `<div class="hm-cell" style="background:${colors[l.status]||colors.default}" data-tip="${l.user}: ${l.action}"></div>`
+  ).join('') + Array(30 - recent30.length).fill('<div class="hm-cell"></div>').join('');
+
+  const total = FILES.length || 1;
+  const enc = FILES.filter(f => f.encrypted).length;
+  const pct = Math.round(enc / total * 100);
+  document.getElementById('enc-coverage').innerHTML = `
+    <div style="display:flex;align-items:center;gap:12px;margin-bottom:6px">
+      <span style="font-size:12px;color:var(--text-dim)">${enc}/${total} files encrypted</span>
+      <span class="glow-purple" style="font-size:12px">${pct}%</span>
+    </div>
+    <div style="height:8px;background:rgba(0,0,0,0.4);border:1px solid var(--border);position:relative">
+      <div style="height:100%;width:${pct}%;background:var(--purple);box-shadow:0 0 8px var(--purple);transition:width 0.5s"></div>
+    </div>
+    <div style="font-size:10px;color:var(--text-dim);margin-top:6px;letter-spacing:0.5px">
+      ${pct < 50 ? '⚠ LOW ENCRYPTION COVERAGE — consider encrypting more files' : '✓ ADEQUATE ENCRYPTION COVERAGE'}
+    </div>
+  `;
+}
+
+// ========== USERS ==========
+function renderUsers() {
+  const list = document.getElementById('users-list');
+  list.innerHTML = Object.entries(USERS).map(([name, u]) => `
+    <div class="user-card">
+      <div class="user-avatar">${name.substring(0,2).toUpperCase()}</div>
+      <div class="user-info">
+        <div class="user-name">${name.toUpperCase()}</div>
+        <div class="user-meta">
+          ROLE: ${u.role.toUpperCase()} · FILES: ${FILES.filter(f=>f.owner===name).length} · SINCE: ${u.created}
+        </div>
+      </div>
+      <div style="display:flex;gap:6px;flex-wrap:wrap">
+        ${name !== 'admin' ? `<button class="btn sm amber" onclick="toggleRole('${name}')">TOGGLE ROLE</button>` : ''}
+        ${name !== currentUser && name !== 'admin' ? `<button class="btn sm danger" onclick="removeUser('${name}')">REMOVE</button>` : ''}
+        <span class="tag ${u.role}">${u.role.toUpperCase()}</span>
+      </div>
+    </div>
+  `).join('');
+}
+
+function toggleRole(username) {
+  USERS[username].role = USERS[username].role === 'user' ? 'admin' : 'user';
+  addLog(currentUser, 'ROLE_CHANGE', username + ' → ' + USERS[username].role, 'ok');
+  toast(username + ' role changed to ' + USERS[username].role, 'info');
+  renderUsers();
+}
+
+function removeUser(username) {
+  showModal({
+    title: '// REMOVE USER',
+    body: `<div style="color:var(--red);margin-bottom:10px">⚠ This will remove user "${username}" and reassign their files.</div>`,
+    actions: `
+      <button class="btn danger" onclick="confirmRemoveUser('${username}')">CONFIRM</button>
+      <button class="btn" onclick="closeModal()">CANCEL</button>
+    `
+  });
+}
+
+function confirmRemoveUser(username) {
+  FILES.forEach(f => { if (f.owner === username) f.owner = 'admin'; });
+  delete USERS[username];
+  addLog(currentUser, 'DELETE_USER', username, 'ok');
+  closeModal();
+  renderUsers();
+  toast('User ' + username + ' removed', 'warn');
+}
+
+function openAddUser() {
+  showModal({
+    title: '// ADD USER',
+    body: `
+      <div class="modal-field"><label class="modal-label">username</label><input type="text" id="nu-name" placeholder="username" /></div>
+      <div class="modal-field"><label class="modal-label">password</label><input type="password" id="nu-pass" placeholder="password" /></div>
+      <div class="modal-field"><label class="modal-label">role</label>
+        <select id="nu-role"><option value="user">user</option><option value="admin">admin</option></select>
+      </div>
+    `,
+    actions: `
+      <button class="btn success" onclick="doAddUser()">CREATE USER</button>
+      <button class="btn" onclick="closeModal()">CANCEL</button>
+    `
+  });
+}
+
+function doAddUser() {
+  const name = document.getElementById('nu-name').value.trim();
+  const pass = document.getElementById('nu-pass').value;
+  const role = document.getElementById('nu-role').value;
+  if (!name || !pass) { toast('Name and password required', 'err'); return; }
+  if (USERS[name]) { toast('User already exists', 'err'); return; }
+  USERS[name] = { password: pass, role, created: new Date().toISOString().split('T')[0] };
+  addLog(currentUser, 'CREATE_USER', name + ' [' + role + ']', 'ok');
+  closeModal();
+  renderUsers();
+  toast('User ' + name + ' created', 'ok');
+}
+
+// ========== MODAL ==========
+function showModal({ title, body, actions }) {
+  document.getElementById('modal-host').innerHTML = `
+    <div class="modal-overlay" onclick="overlayClose(event)">
+      <div class="modal">
+        <div class="modal-header">
+          <div class="modal-title">${title}</div>
+          <button class="modal-close" onclick="closeModal()">✕</button>
+        </div>
+        <div class="modal-body">${body}</div>
+        <div class="modal-footer">${actions}</div>
+      </div>
+    </div>
+  `;
+}
+
+function closeModal() {
+  document.getElementById('modal-host').innerHTML = '';
+}
+
+function overlayClose(e) {
+  if (e.target === e.currentTarget) closeModal();
+}
+
+// ========== TOAST ==========
+function toast(msg, type = 'info') {
+  const icons = { ok:'✓', err:'✕', warn:'⚠', info:'ℹ' };
+  const el = document.createElement('div');
+  el.className = 'toast ' + type;
+  el.innerHTML = `<span>${icons[type]||'•'}</span><span>${msg}</span>`;
+  document.getElementById('toast-container').appendChild(el);
+  setTimeout(() => el.style.opacity = '0', 2800);
+  setTimeout(() => el.remove(), 3000);
+}
+
+// ========== PARTICLES ==========
+function spawnParticles() {
+  for (let i = 0; i < 8; i++) {
+    setTimeout(() => {
+      const p = document.createElement('div');
+      p.className = 'particle';
+      p.style.cssText = `left:${Math.random()*100}vw;bottom:0;animation-duration:${2+Math.random()*3}s;animation-delay:${Math.random()*0.5}s`;
+      document.body.appendChild(p);
+      setTimeout(() => p.remove(), 5000);
+    }, i * 100);
+  }
+}
+
+// ========== KEYBOARD SHORTCUTS ==========
+document.addEventListener('keydown', e => {
+  if (e.key === 'Enter' && document.getElementById('login-screen').style.display !== 'none') {
+    doLogin();
+  }
+  if (e.key === 'Escape') closeModal();
+  if (!currentUser) return;
+  if (e.ctrlKey && e.key === 'u') { e.preventDefault(); openUploadModal(); }
+  if (e.ctrlKey && e.key === 'l') { e.preventDefault(); showTab('logs'); }
+});
+
+// Init
+updateLogBadge();
+</script>
+</body>
+</html>
